@@ -1,0 +1,111 @@
+import math
+from multiprocessing import Pool, cpu_count
+
+
+# ---------- prime numbers ----------
+def primes_up_to(n):
+    sieve = bytearray(b"\x01") * (n + 1)
+    sieve[0:2] = b"\x00\x00"
+
+    for i in range(2, int(n**0.5) + 1):
+        if sieve[i]:
+            sieve[i*i:n+1:i] = b"\x00" * ((n - i*i)//i + 1)
+
+    return [i for i in range(2, n + 1) if sieve[i]]
+
+
+# ---------- worker ----------
+def process_block(args):
+    L, R, primes = args
+    size = R - L
+
+    sigma = [1] * size
+    phi   = [1] * size
+    tau   = [1] * size
+    rem   = [L + i for i in range(size)]
+    squarefree = [True] * size
+
+    for p in primes:
+        start = ((L + p - 1) // p) * p
+
+        if start >= R:
+            continue
+
+        for x in range(start, R, p):
+            i = x - L
+            a = 0
+
+            while rem[i] % p == 0:
+                rem[i] //= p
+                a += 1
+
+            if a:
+                if a >= 2:
+                    squarefree[i] = False
+
+                p_pow = p ** a
+
+                sigma[i] *= (p_pow * p - 1) // (p - 1)
+                phi[i] *= p_pow - p_pow // p
+                tau[i] *= a + 1
+
+    for i in range(size):
+        if rem[i] > 1:
+            p = rem[i]
+
+            sigma[i] *= p + 1
+            phi[i] *= p - 1
+            tau[i] *= 2
+
+    return [
+        L + i
+        for i in range(size)
+        if not squarefree[i]
+        and sigma[i] == phi[i] + tau[i]**7
+    ]
+
+
+# ---------- main ----------
+if __name__ == "__main__":
+    START = 1
+    END   = 10_000_000_000
+    BLOCK = 1_000_000
+    CORES = min(cpu_count(), 4)
+
+    primes = primes_up_to(int(math.isqrt(END)) + 1)
+
+    INTERVAL = 1_000_000_000
+
+    for interval_start in range(START, END, INTERVAL):
+
+        interval_end = min(interval_start + INTERVAL, END)
+
+        print()
+        print("=" * 70)
+        print(f"Search range: {interval_start:,} - {interval_end:,}")
+        print("=" * 70)
+
+        tasks = []
+
+        for L in range(interval_start, interval_end, BLOCK):
+            R = min(L + BLOCK, interval_end)
+            tasks.append((L, R, primes))
+
+        with Pool(CORES) as pool:
+            results = pool.map(process_block, tasks)
+
+        all_matches = [x for block in results for x in block]
+
+        if all_matches:
+            print(
+                f"Solutions found in range: "
+                f"{interval_start:,} - {interval_end:,}:"
+            )
+            print(all_matches)
+        else:
+            print(
+                f"No solutions found in range: "
+                f"{interval_start:,} - {interval_end:,}."
+            )
+
+        print()
